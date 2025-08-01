@@ -1,32 +1,97 @@
 import numpy as np
 import sounddevice as sd
-import keyboard as kb
+from pynput import keyboard
 import time
 import os
 
-# Global dictionary to track actually pressed keys
+
+# --- Pynput keyboard state ---
 actually_pressed_keys = set()
-key_name_mapping = {
-    'z': 'z', 'y': 'y', 'x': 'x', 'c': 'c', 'v': 'v', 'b': 'b', 'n': 'n', 'm': 'm',
-    's': 's', 'd': 'd', 'g': 'g', 'h': 'h', 'j': 'j',
-    'q': 'q', 'w': 'w', 'e': 'e', 'r': 'r', 't': 't', 'u': 'u',
-    '2': '2', '3': '3', '5': '5', '6': '6', '7': '7'
-}
+actually_pressed_digits = set()
+actually_pressed_numpad = set()
 
 
-def on_key_event(event):
-    """Handle key events to track pressed keys."""
-    key_name = event.name.lower()
+def on_press(key):
+    try:
+        k = key.char.lower()
+        if k in NOTE_KEYS:
+            actually_pressed_keys.add(k)
+        if k in ['2', '3', '5', '6', '7']:
+            actually_pressed_digits.add(k)
+    except AttributeError:
+        # Special keys and NumPad
+        if hasattr(key, 'vk') and key.vk:
+            # NumPad клавіші мають vk коди:
+            numpad_mapping = {
+                96: '0',   # VK_NUMPAD0
+                97: '1',   # VK_NUMPAD1
+                98: '2',   # VK_NUMPAD2
+                99: '3',   # VK_NUMPAD3
+                100: '4',  # VK_NUMPAD4
+                101: '5',  # VK_NUMPAD5
+                102: '6',  # VK_NUMPAD6
+                103: '7',  # VK_NUMPAD7
+                104: '8',  # VK_NUMPAD8
+                105: '9'   # VK_NUMPAD9
+            }
+            if key.vk in numpad_mapping:
+                actually_pressed_numpad.add(numpad_mapping[key.vk])
 
-    if key_name in key_name_mapping:
-        if event.event_type == kb.KEY_DOWN:
-            actually_pressed_keys.add(key_name)
-        elif event.event_type == kb.KEY_UP:
-            actually_pressed_keys.discard(key_name)
+        # Альтернативний спосіб через name (якщо vk не працює)
+        if hasattr(key, 'name'):
+            if 'numpad_' in str(key.name).lower():
+                # Витягуємо цифру з назви
+                try:
+                    num = str(key.name).split('_')[1]
+                    actually_pressed_numpad.add(num)
+                except:
+                    pass
+
+        # Спеціальні клавіші
+        if key == keyboard.Key.esc:
+            actually_pressed_keys.add('esc')
+        if key == keyboard.Key.up:
+            actually_pressed_keys.add('up')
+        if key == keyboard.Key.down:
+            actually_pressed_keys.add('down')
 
 
-# Set hook for keyboard events
-kb.hook(on_key_event)
+def on_release(key):
+    try:
+        k = key.char.lower()
+        if k in NOTE_KEYS:
+            actually_pressed_keys.discard(k)
+        if k in ['2', '3', '5', '6', '7']:
+            actually_pressed_digits.discard(k)
+    except AttributeError:
+        # Special keys and NumPad
+        if hasattr(key, 'vk') and key.vk:
+            numpad_mapping = {
+                96: '0', 97: '1', 98: '2', 99: '3', 100: '4',
+                101: '5', 102: '6', 103: '7', 104: '8', 105: '9'
+            }
+            if key.vk in numpad_mapping:
+                actually_pressed_numpad.discard(numpad_mapping[key.vk])
+
+        if hasattr(key, 'name'):
+            if 'numpad_' in str(key.name).lower():
+                try:
+                    num = str(key.name).split('_')[1]
+                    actually_pressed_numpad.discard(num)
+                except:
+                    pass
+
+        if key == keyboard.Key.esc:
+            actually_pressed_keys.discard('esc')
+        if key == keyboard.Key.up:
+            actually_pressed_keys.discard('up')
+        if key == keyboard.Key.down:
+            actually_pressed_keys.discard('down')
+
+
+listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+listener.start()
+# --- END Pynput keyboard state ---
 
 
 # Function to check if a key is really pressed
@@ -108,6 +173,8 @@ FREQUENCY_G2_Diesis = 830.61  # Frequency of the sine wave (G2# note)
 FREQUENCY_A2 = 880.00  # Frequency of the sine wave (A2 note)
 FREQUENCY_A2_Diesis = 932.33  # Frequency of the sine wave (A2# note)
 FREQUENCY_B2 = 987.77  # Frequency of the sine wave (B2 note)
+# Third octave
+FREQUENCY_C3 = 1046.50  # Frequency of the sine wave (C3 note)
 
 # --- Polyphonic Note State Block ---
 NOTE_KEYS = {
@@ -138,7 +205,9 @@ NOTE_KEYS = {
     '3': FREQUENCY_D2_Diesis,
     '5': FREQUENCY_F2_Diesis,
     '6': FREQUENCY_G2_Diesis,
-    '7': FREQUENCY_A2_Diesis
+    '7': FREQUENCY_A2_Diesis,
+    # Third octave (white key)
+    'i': FREQUENCY_C3,
 }
 
 note_states = {k: {'is_pressed': False, 'time_on': 0.0,
@@ -166,6 +235,15 @@ print(INSTRUCTION)
 phase = 0.0  # Initial phase for the save phase of the sine wave
 blocksize = 64  # Size of the audio block to process at a time
 
+# --- Reverb Effect Block ---
+REVERB_ON = [False]  # Mutable for threads
+REVERB_AMOUNT = [0.35]  # 0.0 ... 1.0
+REVERB_DELAY_SEC = 0.08  # Delay time in seconds
+REVERB_BUF_SIZE = int(FS * REVERB_DELAY_SEC)
+reverb_buffer = np.zeros(REVERB_BUF_SIZE)
+reverb_idx = [0]  # Mutable for threads
+# --- END Reverb Effect Block ---
+
 
 last_debug = {'notes': [], 'amp': None, 'wave': None}
 WAVE_TYPE = ['sine']  # 'sine', 'square', 'triangle', 'sawtooth'
@@ -178,11 +256,17 @@ def callback(outdata, frames, time_info, status):
     now = time.time()
     active_notes = []
     for k, freq in NOTE_KEYS.items():
+        # Block normal digit notes if NumPad version is pressed
+        if k in ['2', '3', '5', '6', '7']:
+            if k in actually_pressed_digits and k in actually_pressed_numpad:
+                continue  # If both pressed, block normal digit
+            if k in actually_pressed_numpad:
+                continue  # If NumPad pressed, block normal digit
         if k == 'y' and is_really_pressed('z'):
             continue
         if k == 'z' and is_really_pressed('y'):
             continue
-        if kb.is_pressed(k):
+        if is_really_pressed(k):
             if not note_states[k]['is_pressed']:
                 note_states[k]['is_pressed'] = True
                 note_states[k]['time_on'] = now
@@ -233,6 +317,13 @@ def callback(outdata, frames, time_info, status):
                 else:
                     wave = np.sin(2 * np.pi * freq * t)
                 signal += wave * env
+    # --- Reverb processing ---
+    if REVERB_ON[0]:
+        for i in range(frames):
+            signal[i] += REVERB_AMOUNT[0] * reverb_buffer[reverb_idx[0]]
+            reverb_buffer[reverb_idx[0]] = signal[i]
+            reverb_idx[0] = (reverb_idx[0] + 1) % REVERB_BUF_SIZE
+    # --- END Reverb processing ---
     if len(active_notes) > 0 or np.any(signal != 0):
         signal = AMPLITUDE[0] * signal
         signal = np.tanh(signal)
@@ -250,9 +341,10 @@ def callback(outdata, frames, time_info, status):
     notes_changed = notes != last_debug['notes']
     amp_changed = rounded_amp != last_debug['amp']
     wave_changed = WAVE_TYPE[0] != last_debug.get('wave')
+    reverb_changed = REVERB_ON[0] != last_debug.get('reverb')
     if notes_changed:
         phase = 0  # reset phase to avoid click when notes change
-    if notes_changed or amp_changed or wave_changed:
+    if notes_changed or amp_changed or wave_changed or reverb_changed:
         # Form lines for notes, volume, wave
         if notes:
             note_names = []
@@ -279,48 +371,56 @@ def callback(outdata, frames, time_info, status):
             'sawtooth': 'Sawtooth'
         }
         wave_line = f"Wave: {wave_names.get(WAVE_TYPE[0], WAVE_TYPE[0])}"
+        reverb_line = f"Reverb: {'ON' if REVERB_ON[0] else 'OFF'} (Amount: {REVERB_AMOUNT[0]})"
         os.system('cls')
         print(INSTRUCTION)
         print(notes_line)
         print(volume_line)
         print(wave_line)
+        print(reverb_line)
         last_debug['notes'] = notes.copy()
         last_debug['amp'] = rounded_amp
         last_debug['wave'] = WAVE_TYPE[0]
+        last_debug['reverb'] = REVERB_ON[0]
 
 
 with sd.OutputStream(channels=1, callback=callback, samplerate=FS, blocksize=blocksize, latency='low'):
     while True:
-        if kb.is_pressed('esc'):
+        if is_really_pressed('esc'):
             break
         # Change volume with arrow keys
-        if kb.is_pressed('up'):
+        if is_really_pressed('up'):
             if AMPLITUDE[0] < 1.0:
                 AMPLITUDE[0] = min(1.0, AMPLITUDE[0] + 0.05)
                 time.sleep(0.08)
-        if kb.is_pressed('down'):
+        if is_really_pressed('down'):
             if AMPLITUDE[0] > 0.00:
                 AMPLITUDE[0] = max(0.00, AMPLITUDE[0] - 0.05)
                 time.sleep(0.08)
         # Switch wave type with NumPad 1/2/3/4
-        if kb.is_pressed('num 1'):
+        if '1' in actually_pressed_numpad:
             if WAVE_TYPE[0] != 'sine':
                 WAVE_TYPE[0] = 'sine'
                 phase = 0
                 time.sleep(0.15)
-        if kb.is_pressed('num 2'):
+        if '2' in actually_pressed_numpad:
             if WAVE_TYPE[0] != 'square':
                 WAVE_TYPE[0] = 'square'
                 phase = 0
                 time.sleep(0.15)
-        if kb.is_pressed('num 3'):
+        if '3' in actually_pressed_numpad:
             if WAVE_TYPE[0] != 'triangle':
                 WAVE_TYPE[0] = 'triangle'
                 phase = 0
                 time.sleep(0.15)
-        if kb.is_pressed('num 4'):
+        if '4' in actually_pressed_numpad:
             if WAVE_TYPE[0] != 'sawtooth':
                 WAVE_TYPE[0] = 'sawtooth'
                 phase = 0
                 time.sleep(0.15)
+        # Toggle reverb with NumPad 5
+        if '5' in actually_pressed_numpad:
+            REVERB_ON[0] = not REVERB_ON[0]
+            reverb_buffer[:] = 0
+            time.sleep(0.2)
         time.sleep(0.005)
