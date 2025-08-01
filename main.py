@@ -52,6 +52,7 @@ def envelope_adsr(note_on, note_off, t):
 FS = 44100  # Sample rate
 
 # Frequencies of the sine waves for different notes
+# First octave
 FREQUENCY_C1 = 261.63  # Frequency of the sine wave (C1 note)
 FREQUENCY_C1_Diesis = 277.18  # Frequency of the sine wave (C1# note)
 FREQUENCY_D1 = 293.66  # Frequency of the sine wave (D1 note)
@@ -64,28 +65,55 @@ FREQUENCY_G1_Diesis = 415.30  # Freqency of the sine wave (G1# note)
 FREQUENCY_A1 = 440.00  # Frequency of the sine wave (A1 note)
 FREQUENCY_A1_Diesis = 466.16  # Frequency of the sine wave (A1# note)
 FREQUENCY_B1 = 493.88  # Frequency of the sine wave (B1 note)
+# Second octave
 FREQUENCY_C2 = 523.25  # Frequency of the sine wave (C2 note)
+FREQUENCY_C2_Diesis = 554.37  # Frequency of the sine wave (C2# note)
+FREQUENCY_D2 = 587.33  # Frequency of the sine wave (D2 note)
+FREQUENCY_D2_Diesis = 622.25  # Frequency of the sine wave (D2# note)
+FREQUENCY_E2 = 659.25  # Frequency of the sine wave (E2 note)
+FREQUENCY_F2 = 698.46  # Frequency of the sine wave (F2 note)
+FREQUENCY_F2_Diesis = 739.99  # Frequency of the sine wave (F2# note)
+FREQUENCY_G2 = 783.99  # Frequency of the sine wave (G2 note)
+FREQUENCY_G2_Diesis = 830.61  # Frequency of the sine wave (G2# note)
+FREQUENCY_A2 = 880.00  # Frequency of the sine wave (A2 note)
+FREQUENCY_A2_Diesis = 932.33  # Frequency of the sine wave (A2# note)
+FREQUENCY_B2 = 987.77  # Frequency of the sine wave (B2 note)
 
 # --- Polyphonic Note State Block ---
-# For each note: is_pressed, time_on, time_off
 NOTE_KEYS = {
-    'a': FREQUENCY_C1,
-    'w': FREQUENCY_C1_Diesis,
-    's': FREQUENCY_D1,
-    'e': FREQUENCY_D1_Diesis,
-    'd': FREQUENCY_E1,
-    'f': FREQUENCY_F1,
-    't': FREQUENCY_F1_Diesis,
-    'g': FREQUENCY_G1,
-    'y': FREQUENCY_G1_Diesis,
-    'h': FREQUENCY_A1,
-    'u': FREQUENCY_A1_Diesis,
-    'j': FREQUENCY_B1,
-    'k': FREQUENCY_C2
+    # First octave (white keys)
+    'z': FREQUENCY_C1,
+    'x': FREQUENCY_D1,
+    'c': FREQUENCY_E1,
+    'v': FREQUENCY_F1,
+    'b': FREQUENCY_G1,
+    'n': FREQUENCY_A1,
+    'm': FREQUENCY_B1,
+    # First octave (black keys)
+    's': FREQUENCY_C1_Diesis,
+    'd': FREQUENCY_D1_Diesis,
+    'g': FREQUENCY_F1_Diesis,
+    'h': FREQUENCY_G1_Diesis,
+    'j': FREQUENCY_A1_Diesis,
+    # Second octave (white keys)
+    'q': FREQUENCY_C2,
+    'w': FREQUENCY_D2,
+    'e': FREQUENCY_E2,
+    'r': FREQUENCY_F2,
+    't': FREQUENCY_G2,
+    'y': FREQUENCY_A2,
+    'u': FREQUENCY_B2,
+    # Second octave (black keys)
+    '2': FREQUENCY_C2_Diesis,
+    '3': FREQUENCY_D2_Diesis,
+    '5': FREQUENCY_F2_Diesis,
+    '6': FREQUENCY_G2_Diesis,
+    '7': FREQUENCY_A2_Diesis
 }
 
 note_states = {k: {'is_pressed': False, 'time_on': 0.0,
                    'time_off': None} for k in NOTE_KEYS}
+
 # --- END Polyphonic Note State Block ---
 
 # Volume of the sine wave
@@ -93,7 +121,10 @@ note_states = {k: {'is_pressed': False, 'time_on': 0.0,
 AMPLITUDE = [0.5]  # Volume of the sine wave (mutable for threads)
 INSTRUCTION = (
     "Controls:\n"
-    "  Notes: a w s e d f t g y h u j k\n"
+    "  First octave (white): z x c v b n m ,\n"
+    "  First octave (black): s d g h j\n"
+    "  Second octave (white): q w e r t y u i\n"
+    "  Second octave (black): 2 3 5 6 7\n"
     "  Volume: up/down arrows\n"
     "  Wave type: NumPad 1 — sine, 2 — square, 3 — triangle, 4 — sawtooth\n"
     "  Exit: esc\n"
@@ -151,10 +182,9 @@ def callback(outdata, frames, time_info, status):
         if not note_states[k]['is_pressed'] and note_states[k]['time_off'] is not None:
             # envelope has not yet faded
             env = envelope_adsr(
-                (note_states[k]['time_on'] -
-                 int(note_states[k]['time_on'])) + t[0],
+                note_states[k]['time_on'],
                 note_states[k]['time_off'],
-                t
+                t + now
             )
             if np.any(env > 0):
                 if WAVE_TYPE[0] == 'sine':
@@ -193,12 +223,17 @@ def callback(outdata, frames, time_info, status):
         if notes:
             note_names = []
             freq_to_name = {
-                FREQUENCY_C1: 'C', FREQUENCY_C1_Diesis: 'C#', FREQUENCY_D1: 'D', FREQUENCY_D1_Diesis: 'D#',
-                FREQUENCY_E1: 'E', FREQUENCY_F1: 'F', FREQUENCY_F1_Diesis: 'F#', FREQUENCY_G1: 'G',
-                FREQUENCY_G1_Diesis: 'G#', FREQUENCY_A1: 'A', FREQUENCY_A1_Diesis: 'A#', FREQUENCY_B1: 'B', FREQUENCY_C2: 'C2'
+                FREQUENCY_C1: 'C1', FREQUENCY_C1_Diesis: 'C#1', FREQUENCY_D1: 'D1', FREQUENCY_D1_Diesis: 'D#1',
+                FREQUENCY_E1: 'E1', FREQUENCY_F1: 'F1', FREQUENCY_F1_Diesis: 'F#1', FREQUENCY_G1: 'G1',
+                FREQUENCY_G1_Diesis: 'G#1', FREQUENCY_A1: 'A1', FREQUENCY_A1_Diesis: 'A#1', FREQUENCY_B1: 'B1',
+                FREQUENCY_C2: 'C2', FREQUENCY_C2_Diesis: 'C#2', FREQUENCY_D2: 'D2', FREQUENCY_D2_Diesis: 'D#2',
+                FREQUENCY_E2: 'E2', FREQUENCY_F2: 'F2', FREQUENCY_F2_Diesis: 'F#2', FREQUENCY_G2: 'G2',
+                FREQUENCY_G2_Diesis: 'G#2', FREQUENCY_A2: 'A2', FREQUENCY_A2_Diesis: 'A#2', FREQUENCY_B2: 'B2',
+                1046.50: 'C3'
             }
             for freq in notes:
-                note_names.append(freq_to_name.get(freq, str(freq)))
+                note_names.append(freq_to_name.get(
+                    round(freq, 2), freq_to_name.get(freq, str(freq))))
             notes_line = f"Notes: {', '.join(note_names)} | Real amplitude: {real_amp:.2f}"
         else:
             notes_line = "Notes: (none) | Real amplitude: 0.00"
