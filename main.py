@@ -4,6 +4,49 @@ import keyboard as kb
 import time
 import os
 
+""" --- ADSR Envelope Block ---
+Attack, Decay, Sustain, Release times (seconds) and sustain level
+"""
+ADSR = {
+    'attack': 0.05,   # fast attack
+    'decay': 0.1,     # fast decay
+    'sustain': 0.7,   # sustain level
+    'release': 0.2    # slow release
+}
+
+
+def envelope_adsr(note_on, note_off, t):
+    """
+    note_on: time when the key is pressed (seconds)
+    note_off: time when the key is released (None if still pressed)
+    t: time array for the block
+    Returns envelope for each sample
+    """
+    env = np.zeros_like(t)
+    for i in range(len(t)):
+        time_since_on = t[i] - note_on
+        if note_off is None or t[i] < note_off:
+            # key is pressed
+            if time_since_on < ADSR['attack']:
+                env[i] = time_since_on / max(ADSR['attack'], 1e-6)
+            elif time_since_on < ADSR['attack'] + ADSR['decay']:
+                env[i] = 1 - (time_since_on - ADSR['attack']) / \
+                    max(ADSR['decay'], 1e-6) * (1 - ADSR['sustain'])
+            else:
+                env[i] = ADSR['sustain']
+        else:
+            # key is released
+            time_since_off = t[i] - note_off
+            if time_since_off < ADSR['release']:
+                # Release
+                # Initial level — sustain
+                env[i] = ADSR['sustain'] * \
+                    (1 - time_since_off / max(ADSR['release'], 1e-6))
+            else:
+                env[i] = 0.0
+    return env
+# --- END ADSR Envelope Block ---
+
 
 # Constants
 FS = 44100  # Sample rate
@@ -17,17 +60,46 @@ FREQUENCY_E1 = 329.63  # Frequency of the sine wave (E1 note)
 FREQUENCY_F1 = 349.23  # Frequency of the sine wave (F1 note)
 FREQUENCY_F1_Diesis = 369.99  # Frequency of the sine wave (F1# note)
 FREQUENCY_G1 = 392.00  # Frequency of the sine wave (G1 note)
-FREQUENCY_G1_Diesis = 415.30  # Frequency of the sine wave (G1# note)
+FREQUENCY_G1_Diesis = 415.30  # Freqency of the sine wave (G1# note)
 FREQUENCY_A1 = 440.00  # Frequency of the sine wave (A1 note)
 FREQUENCY_A1_Diesis = 466.16  # Frequency of the sine wave (A1# note)
 FREQUENCY_B1 = 493.88  # Frequency of the sine wave (B1 note)
 FREQUENCY_C2 = 523.25  # Frequency of the sine wave (C2 note)
 
+# --- Polyphonic Note State Block ---
+# For each note: is_pressed, time_on, time_off
+NOTE_KEYS = {
+    'a': FREQUENCY_C1,
+    'w': FREQUENCY_C1_Diesis,
+    's': FREQUENCY_D1,
+    'e': FREQUENCY_D1_Diesis,
+    'd': FREQUENCY_E1,
+    'f': FREQUENCY_F1,
+    't': FREQUENCY_F1_Diesis,
+    'g': FREQUENCY_G1,
+    'y': FREQUENCY_G1_Diesis,
+    'h': FREQUENCY_A1,
+    'u': FREQUENCY_A1_Diesis,
+    'j': FREQUENCY_B1,
+    'k': FREQUENCY_C2
+}
+
+note_states = {k: {'is_pressed': False, 'time_on': 0.0,
+                   'time_off': None} for k in NOTE_KEYS}
+# --- END Polyphonic Note State Block ---
 
 # Volume of the sine wave
 
 AMPLITUDE = [0.5]  # Volume of the sine wave (mutable for threads)
-INSTRUCTION = "Press and hold keys for notes. Arrow keys — change volume. Exit — 'esc'."
+INSTRUCTION = (
+    "Controls:\n"
+    "  Notes: a w s e d f t g y h u j k\n"
+    "  Volume: up/down arrows\n"
+    "  Wave type: NumPad 1 — sine, 2 — square, 3 — triangle, 4 — sawtooth\n"
+    "  Exit: esc\n"
+    "\n"
+    "Press and hold keys for notes. Arrow keys — change volume. Exit — 'esc'."
+)
 print(INSTRUCTION)
 
 phase = 0.0  # Initial phase for the save phase of the sine wave
@@ -41,59 +113,72 @@ WAVE_TYPE = ['sine']  # 'sine', 'square', 'triangle', 'sawtooth'
 def callback(outdata, frames, time_info, status):
     global phase, last_debug
     t = (np.arange(frames) + phase) / FS
-    notes = []  # List to hold frequencies of pressed keys
-
-    # Check which keys are pressed and append their frequencies
-    if kb.is_pressed('a'):
-        notes.append(FREQUENCY_C1)
-    if kb.is_pressed('w'):
-        notes.append(FREQUENCY_C1_Diesis)
-    if kb.is_pressed('s'):
-        notes.append(FREQUENCY_D1)
-    if kb.is_pressed('e'):
-        notes.append(FREQUENCY_D1_Diesis)
-    if kb.is_pressed('d'):
-        notes.append(FREQUENCY_E1)
-    if kb.is_pressed('f'):
-        notes.append(FREQUENCY_F1)
-    if kb.is_pressed('t'):
-        notes.append(FREQUENCY_F1_Diesis)
-    if kb.is_pressed('g'):
-        notes.append(FREQUENCY_G1)
-    if kb.is_pressed('y'):
-        notes.append(FREQUENCY_G1_Diesis)
-    if kb.is_pressed('h'):
-        notes.append(FREQUENCY_A1)
-    if kb.is_pressed('u'):
-        notes.append(FREQUENCY_A1_Diesis)
-    if kb.is_pressed('j'):
-        notes.append(FREQUENCY_B1)
-    if kb.is_pressed('k'):
-        notes.append(FREQUENCY_C2)
-
-    if notes:
-        # Sum all waves, normalize volume
-        signal = np.zeros(frames)
-        for freq in notes:
-            if WAVE_TYPE[0] == 'sine':
-                signal += np.sin(2 * np.pi * freq * t)
-            elif WAVE_TYPE[0] == 'square':
-                signal += np.sign(np.sin(2 * np.pi * freq * t))
-            elif WAVE_TYPE[0] == 'triangle':
-                signal += 2 * \
-                    np.abs(2 * (freq * t - np.floor(freq * t + 0.5))) - 1
-            elif WAVE_TYPE[0] == 'sawtooth':
-                signal += 2 * (freq * t - np.floor(0.5 + freq * t))
-        # signal = AMPLITUDE[0] * signal / max(len(notes), 1)  # normalize by number of notes
+    # Оновлюємо стан нот
+    now = time.time()
+    active_notes = []
+    for k, freq in NOTE_KEYS.items():
+        if kb.is_pressed(k):
+            if not note_states[k]['is_pressed']:
+                note_states[k]['is_pressed'] = True
+                note_states[k]['time_on'] = now
+                note_states[k]['time_off'] = None
+            active_notes.append((freq, k))
+        else:
+            if note_states[k]['is_pressed']:
+                note_states[k]['is_pressed'] = False
+                note_states[k]['time_off'] = now
+    # Generate the signal for the active notes
+    signal = np.zeros(frames)
+    notes_for_debug = []
+    for freq, k in active_notes:
+        notes_for_debug.append(freq)
+        env = envelope_adsr(note_states[k]['time_on'],
+                            note_states[k]['time_off'],
+                            t + now)
+        if WAVE_TYPE[0] == 'sine':
+            wave = np.sin(2 * np.pi * freq * t)
+        elif WAVE_TYPE[0] == 'square':
+            wave = np.sign(np.sin(2 * np.pi * freq * t))
+        elif WAVE_TYPE[0] == 'triangle':
+            wave = 2 * np.abs(2 * (freq * t - np.floor(freq * t + 0.5))) - 1
+        elif WAVE_TYPE[0] == 'sawtooth':
+            wave = 2 * (freq * t - np.floor(0.5 + freq * t))
+        else:
+            wave = np.sin(2 * np.pi * freq * t)
+        signal += wave * env
+    # Add the waves of notes that have just been released but still have a release
+    for k, freq in NOTE_KEYS.items():
+        if not note_states[k]['is_pressed'] and note_states[k]['time_off'] is not None:
+            # envelope has not yet faded
+            env = envelope_adsr(
+                (note_states[k]['time_on'] -
+                 int(note_states[k]['time_on'])) + t[0],
+                note_states[k]['time_off'],
+                t
+            )
+            if np.any(env > 0):
+                if WAVE_TYPE[0] == 'sine':
+                    wave = np.sin(2 * np.pi * freq * t)
+                elif WAVE_TYPE[0] == 'square':
+                    wave = np.sign(np.sin(2 * np.pi * freq * t))
+                elif WAVE_TYPE[0] == 'triangle':
+                    wave = 2 * \
+                        np.abs(2 * (freq * t - np.floor(freq * t + 0.5))) - 1
+                elif WAVE_TYPE[0] == 'sawtooth':
+                    wave = 2 * (freq * t - np.floor(0.5 + freq * t))
+                else:
+                    wave = np.sin(2 * np.pi * freq * t)
+                signal += wave * env
+    if len(active_notes) > 0 or np.any(signal != 0):
         signal = AMPLITUDE[0] * signal
-        # Soft clipping using tanh
         signal = np.tanh(signal)
         outdata[:, 0] = signal
-        # Calculate real amplitude for debug
         real_amp = np.max(np.abs(signal)) if signal.size > 0 else 0.0
+        notes = notes_for_debug
     else:
         outdata[:, 0] = 0
         real_amp = 0.0
+        notes = []
     phase += frames
 
     # Debug print only if notes, volume, or wave type changed
