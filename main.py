@@ -31,10 +31,11 @@ INSTRUCTION = "Press and hold keys for notes. Arrow keys — change volume. Exit
 print(INSTRUCTION)
 
 phase = 0.0  # Initial phase for the save phase of the sine wave
-blocksize = 256  # Size of the audio block to process at a time
+blocksize = 64  # Size of the audio block to process at a time
 
 
-last_debug = {'notes': [], 'amp': None}
+last_debug = {'notes': [], 'amp': None, 'wave': None}
+WAVE_TYPE = ['sine']  # 'sine', 'square', 'triangle', 'sawtooth'
 
 
 def callback(outdata, frames, time_info, status):
@@ -71,22 +72,39 @@ def callback(outdata, frames, time_info, status):
         notes.append(FREQUENCY_C2)
 
     if notes:
-        # Sum all sine waves, normalize volume
+        # Sum all waves, normalize volume
         signal = np.zeros(frames)
         for freq in notes:
-            signal += np.sin(2 * np.pi * freq * t)
-        signal = AMPLITUDE[0] * signal / max(len(notes), 1)
+            if WAVE_TYPE[0] == 'sine':
+                signal += np.sin(2 * np.pi * freq * t)
+            elif WAVE_TYPE[0] == 'square':
+                signal += np.sign(np.sin(2 * np.pi * freq * t))
+            elif WAVE_TYPE[0] == 'triangle':
+                signal += 2 * \
+                    np.abs(2 * (freq * t - np.floor(freq * t + 0.5))) - 1
+            elif WAVE_TYPE[0] == 'sawtooth':
+                signal += 2 * (freq * t - np.floor(0.5 + freq * t))
+        # signal = AMPLITUDE[0] * signal / max(len(notes), 1)  # normalize by number of notes
+        signal = AMPLITUDE[0] * signal
+        # Soft clipping using tanh
+        signal = np.tanh(signal)
         outdata[:, 0] = signal
+        # Calculate real amplitude for debug
+        real_amp = np.max(np.abs(signal)) if signal.size > 0 else 0.0
     else:
         outdata[:, 0] = 0
+        real_amp = 0.0
     phase += frames
 
-    # Debug print only if notes or volume changed
+    # Debug print only if notes, volume, or wave type changed
     rounded_amp = round(AMPLITUDE[0], 2)
     notes_changed = notes != last_debug['notes']
     amp_changed = rounded_amp != last_debug['amp']
-    if notes_changed or amp_changed:
-        # Form lines for notes and volume
+    wave_changed = WAVE_TYPE[0] != last_debug.get('wave')
+    if notes_changed:
+        phase = 0  # reset phase to avoid click when notes change
+    if notes_changed or amp_changed or wave_changed:
+        # Form lines for notes, volume, wave
         if notes:
             note_names = []
             freq_to_name = {
@@ -96,20 +114,28 @@ def callback(outdata, frames, time_info, status):
             }
             for freq in notes:
                 note_names.append(freq_to_name.get(freq, str(freq)))
-            notes_line = f"Notes: {', '.join(note_names)}"
+            notes_line = f"Notes: {', '.join(note_names)} | Real amplitude: {real_amp:.2f}"
         else:
-            notes_line = "Notes: (none)"
+            notes_line = "Notes: (none) | Real amplitude: 0.00"
         volume_line = f"Volume: {rounded_amp}"
-        # Reset console output and print new lines
+        wave_names = {
+            'sine': 'Sine',
+            'square': 'Square',
+            'triangle': 'Triangle',
+            'sawtooth': 'Sawtooth'
+        }
+        wave_line = f"Wave: {wave_names.get(WAVE_TYPE[0], WAVE_TYPE[0])}"
         os.system('cls')
         print(INSTRUCTION)
         print(notes_line)
         print(volume_line)
+        print(wave_line)
         last_debug['notes'] = notes.copy()
         last_debug['amp'] = rounded_amp
+        last_debug['wave'] = WAVE_TYPE[0]
 
 
-with sd.OutputStream(channels=1, callback=callback, samplerate=FS, blocksize=blocksize):
+with sd.OutputStream(channels=1, callback=callback, samplerate=FS, blocksize=blocksize, latency='low'):
     while True:
         if kb.is_pressed('esc'):
             break
@@ -117,13 +143,30 @@ with sd.OutputStream(channels=1, callback=callback, samplerate=FS, blocksize=blo
         if kb.is_pressed('up'):
             if AMPLITUDE[0] < 1.0:
                 AMPLITUDE[0] = min(1.0, AMPLITUDE[0] + 0.05)
-                print(f"Volume: {AMPLITUDE[0]:.2f}")
                 time.sleep(0.08)
         if kb.is_pressed('down'):
             if AMPLITUDE[0] > 0.00:
                 AMPLITUDE[0] = max(0.00, AMPLITUDE[0] - 0.05)
-                print(f"Volume: {AMPLITUDE[0]:.2f}")
-                if AMPLITUDE[0] == 0.00:
-                    print("Volume is muted")
                 time.sleep(0.08)
+        # Switch wave type with NumPad 1/2/3/4
+        if kb.is_pressed('num 1'):
+            if WAVE_TYPE[0] != 'sine':
+                WAVE_TYPE[0] = 'sine'
+                phase = 0
+                time.sleep(0.15)
+        if kb.is_pressed('num 2'):
+            if WAVE_TYPE[0] != 'square':
+                WAVE_TYPE[0] = 'square'
+                phase = 0
+                time.sleep(0.15)
+        if kb.is_pressed('num 3'):
+            if WAVE_TYPE[0] != 'triangle':
+                WAVE_TYPE[0] = 'triangle'
+                phase = 0
+                time.sleep(0.15)
+        if kb.is_pressed('num 4'):
+            if WAVE_TYPE[0] != 'sawtooth':
+                WAVE_TYPE[0] = 'sawtooth'
+                phase = 0
+                time.sleep(0.15)
         time.sleep(0.005)
