@@ -244,6 +244,23 @@ reverb_buffer = np.zeros(REVERB_BUF_SIZE)
 reverb_idx = [0]  # Mutable for threads
 # --- END Reverb Effect Block ---
 
+# --- Chorus & Delay Effect Block ---
+CHORUS_ON = [False]
+CHORUS_DEPTH = [0.008]  # seconds (менше глибина)
+CHORUS_RATE = [1.1]     # Hz (трохи менше)
+CHORUS_VOICES = 4       # більше голосів
+CHORUS_BUF_SIZE = int(FS * 0.025)  # менший буфер
+chorus_buffer = np.zeros(CHORUS_BUF_SIZE)
+chorus_idx = [0]
+
+DELAY_ON = [False]
+DELAY_TIME_SEC = [0.12]  # seconds (коротший ділей)
+DELAY_FEEDBACK = [0.3]   # менший фідбек
+DELAY_BUF_SIZE = int(FS * DELAY_TIME_SEC[0])
+delay_buffer = np.zeros(DELAY_BUF_SIZE)
+delay_idx = [0]
+# --- END Chorus & Delay Effect Block ---
+
 
 last_debug = {'notes': [], 'amp': None, 'wave': None}
 WAVE_TYPE = ['sine']  # 'sine', 'square', 'triangle', 'sawtooth'
@@ -317,6 +334,35 @@ def callback(outdata, frames, time_info, status):
                 else:
                     wave = np.sin(2 * np.pi * freq * t)
                 signal += wave * env
+    # --- Chorus processing ---
+    if CHORUS_ON[0]:
+        chorus_out = np.zeros(frames)
+        for v in range(CHORUS_VOICES):
+            mod = CHORUS_DEPTH[0] * \
+                np.sin(2 * np.pi * (CHORUS_RATE[0] + v*0.25) * t)
+            delay_samples = (mod * FS).astype(int)
+            for i in range(frames):
+                idx = (chorus_idx[0] + i - delay_samples[i]) % CHORUS_BUF_SIZE
+                chorus_out[i] += chorus_buffer[idx]
+        chorus_out /= CHORUS_VOICES
+        # Обмежуємо рівень хорусу
+        signal += 0.28 * chorus_out
+        for i in range(frames):
+            chorus_buffer[chorus_idx[0]] = signal[i]
+            chorus_idx[0] = (chorus_idx[0] + 1) % CHORUS_BUF_SIZE
+    # --- END Chorus processing ---
+
+    # --- Delay processing ---
+    if DELAY_ON[0]:
+        for i in range(frames):
+            delayed = delay_buffer[delay_idx[0]]
+            # Обмежуємо рівень ділей
+            signal[i] += 0.45 * delayed
+            delay_buffer[delay_idx[0]] = signal[i] + \
+                delayed * DELAY_FEEDBACK[0]
+            delay_idx[0] = (delay_idx[0] + 1) % DELAY_BUF_SIZE
+    # --- END Delay processing ---
+
     # --- Reverb processing ---
     if REVERB_ON[0]:
         for i in range(frames):
@@ -372,12 +418,16 @@ def callback(outdata, frames, time_info, status):
         }
         wave_line = f"Wave: {wave_names.get(WAVE_TYPE[0], WAVE_TYPE[0])}"
         reverb_line = f"Reverb: {'ON' if REVERB_ON[0] else 'OFF'} (Amount: {REVERB_AMOUNT[0]})"
+        chorus_line = f"Chorus: {'ON' if CHORUS_ON[0] else 'OFF'} (Depth: {CHORUS_DEPTH[0]}, Rate: {CHORUS_RATE[0]})"
+        delay_line = f"Delay: {'ON' if DELAY_ON[0] else 'OFF'} (Time: {DELAY_TIME_SEC[0]}, Feedback: {DELAY_FEEDBACK[0]})"
         os.system('cls')
         print(INSTRUCTION)
         print(notes_line)
         print(volume_line)
         print(wave_line)
         print(reverb_line)
+        print(chorus_line)
+        print(delay_line)
         last_debug['notes'] = notes.copy()
         last_debug['amp'] = rounded_amp
         last_debug['wave'] = WAVE_TYPE[0]
@@ -422,5 +472,15 @@ with sd.OutputStream(channels=1, callback=callback, samplerate=FS, blocksize=blo
         if '5' in actually_pressed_numpad:
             REVERB_ON[0] = not REVERB_ON[0]
             reverb_buffer[:] = 0
+            time.sleep(0.2)
+        # Toggle chorus with NumPad 6
+        if '6' in actually_pressed_numpad:
+            CHORUS_ON[0] = not CHORUS_ON[0]
+            chorus_buffer[:] = 0
+            time.sleep(0.2)
+        # Toggle delay with NumPad 7
+        if '7' in actually_pressed_numpad:
+            DELAY_ON[0] = not DELAY_ON[0]
+            delay_buffer[:] = 0
             time.sleep(0.2)
         time.sleep(0.005)
