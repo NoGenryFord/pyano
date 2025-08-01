@@ -4,6 +4,36 @@ import keyboard as kb
 import time
 import os
 
+# Global dictionary to track actually pressed keys
+actually_pressed_keys = set()
+key_name_mapping = {
+    'z': 'z', 'y': 'y', 'x': 'x', 'c': 'c', 'v': 'v', 'b': 'b', 'n': 'n', 'm': 'm',
+    's': 's', 'd': 'd', 'g': 'g', 'h': 'h', 'j': 'j',
+    'q': 'q', 'w': 'w', 'e': 'e', 'r': 'r', 't': 't', 'u': 'u',
+    '2': '2', '3': '3', '5': '5', '6': '6', '7': '7'
+}
+
+
+def on_key_event(event):
+    """Handle key events to track pressed keys."""
+    key_name = event.name.lower()
+
+    if key_name in key_name_mapping:
+        if event.event_type == kb.KEY_DOWN:
+            actually_pressed_keys.add(key_name)
+        elif event.event_type == kb.KEY_UP:
+            actually_pressed_keys.discard(key_name)
+
+
+# Set hook for keyboard events
+kb.hook(on_key_event)
+
+
+# Function to check if a key is really pressed
+def is_really_pressed(key):
+    return key in actually_pressed_keys
+
+
 """ --- ADSR Envelope Block ---
 Attack, Decay, Sustain, Release times (seconds) and sustain level
 """
@@ -144,10 +174,14 @@ WAVE_TYPE = ['sine']  # 'sine', 'square', 'triangle', 'sawtooth'
 def callback(outdata, frames, time_info, status):
     global phase, last_debug
     t = (np.arange(frames) + phase) / FS
-    # Оновлюємо стан нот
+    # Update note states
     now = time.time()
     active_notes = []
     for k, freq in NOTE_KEYS.items():
+        if k == 'y' and is_really_pressed('z'):
+            continue
+        if k == 'z' and is_really_pressed('y'):
+            continue
         if kb.is_pressed(k):
             if not note_states[k]['is_pressed']:
                 note_states[k]['is_pressed'] = True
