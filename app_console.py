@@ -1,11 +1,8 @@
-# Глобальний прапорець для завершення синтезатора
-import os
-import time
-from pynput import keyboard
-import sounddevice as sd
 import numpy as np
-RUNNING = [True]
-_synth_thread = None
+import sounddevice as sd
+from pynput import keyboard
+import time
+import os
 
 
 # --- Pynput keyboard state ---
@@ -92,18 +89,8 @@ def on_release(key):
             actually_pressed_keys.discard('down')
 
 
-listener = None
-
-def start_keyboard_listener():
-    global listener
-    if listener is None or not listener.running:
-        listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-        listener.start()
-
-def stop_keyboard_listener():
-    global listener
-    if listener and listener.running:
-        listener.stop()
+listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+listener.start()
 # --- END Pynput keyboard state ---
 
 
@@ -447,74 +434,53 @@ def callback(outdata, frames, time_info, status):
         last_debug['reverb'] = REVERB_ON[0]
 
 
-def run_synth():
-    with sd.OutputStream(channels=1, callback=callback, samplerate=FS, blocksize=blocksize, latency='low'):
-        while RUNNING[0]:
-            if is_really_pressed('esc'):
-                RUNNING[0] = False
-                break
-            # ...existing code...
-            if is_really_pressed('up'):
-                if AMPLITUDE[0] < 1.0:
-                    AMPLITUDE[0] = min(1.0, AMPLITUDE[0] + 0.05)
-                    time.sleep(0.08)
-            if is_really_pressed('down'):
-                if AMPLITUDE[0] > 0.00:
-                    AMPLITUDE[0] = max(0.00, AMPLITUDE[0] - 0.05)
-                    time.sleep(0.08)
-            # ...existing code...
-            if '1' in actually_pressed_numpad:
-                if WAVE_TYPE[0] != 'sine':
-                    WAVE_TYPE[0] = 'sine'
-                    phase = 0
-                    time.sleep(0.15)
-            if '2' in actually_pressed_numpad:
-                if WAVE_TYPE[0] != 'square':
-                    WAVE_TYPE[0] = 'square'
-                    phase = 0
-                    time.sleep(0.15)
-            if '3' in actually_pressed_numpad:
-                if WAVE_TYPE[0] != 'triangle':
-                    WAVE_TYPE[0] = 'triangle'
-                    phase = 0
-                    time.sleep(0.15)
-            if '4' in actually_pressed_numpad:
-                if WAVE_TYPE[0] != 'sawtooth':
-                    WAVE_TYPE[0] = 'sawtooth'
-                    phase = 0
-                    time.sleep(0.15)
-            # ...existing code...
-            if '5' in actually_pressed_numpad:
-                REVERB_ON[0] = not REVERB_ON[0]
-                reverb_buffer[:] = 0
-                time.sleep(0.2)
-            if '6' in actually_pressed_numpad:
-                CHORUS_ON[0] = not CHORUS_ON[0]
-                chorus_buffer[:] = 0
-                time.sleep(0.2)
-            if '7' in actually_pressed_numpad:
-                DELAY_ON[0] = not DELAY_ON[0]
-                delay_buffer[:] = 0
-                time.sleep(0.2)
-            time.sleep(0.005)
-
-
-def run_synth_background():
-    import threading
-    global _synth_thread
-
-    # Перевіряємо, чи потік уже запущений
-    if '_synth_thread' in globals() and _synth_thread and _synth_thread.is_alive():
-        return
-
-    _synth_thread = threading.Thread(target=run_synth, daemon=False)
-    _synth_thread.start()
-    return _synth_thread
-
-
-def stop_synth():
-    global RUNNING, _synth_thread
-    RUNNING[0] = False
-    stop_keyboard_listener()
-    if _synth_thread and _synth_thread.is_alive():
-        _synth_thread.join(timeout=1.0)  # Чекаємо до 1 секунди
+with sd.OutputStream(channels=1, callback=callback, samplerate=FS, blocksize=blocksize, latency='low'):
+    while True:
+        if is_really_pressed('esc'):
+            break
+        # Change volume with arrow keys
+        if is_really_pressed('up'):
+            if AMPLITUDE[0] < 1.0:
+                AMPLITUDE[0] = min(1.0, AMPLITUDE[0] + 0.05)
+                time.sleep(0.08)
+        if is_really_pressed('down'):
+            if AMPLITUDE[0] > 0.00:
+                AMPLITUDE[0] = max(0.00, AMPLITUDE[0] - 0.05)
+                time.sleep(0.08)
+        # Switch wave type with NumPad 1/2/3/4
+        if '1' in actually_pressed_numpad:
+            if WAVE_TYPE[0] != 'sine':
+                WAVE_TYPE[0] = 'sine'
+                phase = 0
+                time.sleep(0.15)
+        if '2' in actually_pressed_numpad:
+            if WAVE_TYPE[0] != 'square':
+                WAVE_TYPE[0] = 'square'
+                phase = 0
+                time.sleep(0.15)
+        if '3' in actually_pressed_numpad:
+            if WAVE_TYPE[0] != 'triangle':
+                WAVE_TYPE[0] = 'triangle'
+                phase = 0
+                time.sleep(0.15)
+        if '4' in actually_pressed_numpad:
+            if WAVE_TYPE[0] != 'sawtooth':
+                WAVE_TYPE[0] = 'sawtooth'
+                phase = 0
+                time.sleep(0.15)
+        # Toggle reverb with NumPad 5
+        if '5' in actually_pressed_numpad:
+            REVERB_ON[0] = not REVERB_ON[0]
+            reverb_buffer[:] = 0
+            time.sleep(0.2)
+        # Toggle chorus with NumPad 6
+        if '6' in actually_pressed_numpad:
+            CHORUS_ON[0] = not CHORUS_ON[0]
+            chorus_buffer[:] = 0
+            time.sleep(0.2)
+        # Toggle delay with NumPad 7
+        if '7' in actually_pressed_numpad:
+            DELAY_ON[0] = not DELAY_ON[0]
+            delay_buffer[:] = 0
+            time.sleep(0.2)
+        time.sleep(0.005)

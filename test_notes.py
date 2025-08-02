@@ -12,6 +12,7 @@ FREQ_MAX = 25000
 FREQ_STEP = 1
 FREQ_STEP_FAST = 10
 frequency = [440.0]  # mutable for callback
+print(sd.query_devices())
 
 
 def callback(outdata, frames, time_info, status):
