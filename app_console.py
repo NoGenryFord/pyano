@@ -144,7 +144,7 @@ def envelope_adsr(note_on, note_off, t):
 
 
 # Constants
-FS = 44100  # Sample rate
+FS = 48000  # Sample rate
 
 # Frequencies of the sine waves for different notes
 # First octave
@@ -279,10 +279,6 @@ def callback(outdata, frames, time_info, status):
                 continue  # If both pressed, block normal digit
             if k in actually_pressed_numpad:
                 continue  # If NumPad pressed, block normal digit
-        if k == 'y' and is_really_pressed('z'):
-            continue
-        if k == 'z' and is_really_pressed('y'):
-            continue
         if is_really_pressed(k):
             if not note_states[k]['is_pressed']:
                 note_states[k]['is_pressed'] = True
@@ -434,8 +430,74 @@ def callback(outdata, frames, time_info, status):
         last_debug['reverb'] = REVERB_ON[0]
 
 
-with sd.OutputStream(channels=1, callback=callback, samplerate=FS, blocksize=blocksize, latency='low'):
-    while True:
+def audio_callback(outdata, frames, time_info, status):
+    callback(outdata, frames, time_info, status)
+
+# --- Select WASAPI device index here ---
+DEVICE_INDEX = 13  # Set to integer to select WASAPI device, or None for default
+
+with sd.OutputStream(
+    device=DEVICE_INDEX,
+    channels=1,
+    samplerate=FS,
+    blocksize=blocksize,
+    dtype='float32',
+    latency='low',
+    callback=audio_callback
+) as stream:
+    try:
+        while True:
+            if is_really_pressed('esc'):
+                break
+            # Change volume with arrow keys
+            if is_really_pressed('up'):
+                if AMPLITUDE[0] < 1.0:
+                    AMPLITUDE[0] = min(1.0, AMPLITUDE[0] + 0.05)
+                    time.sleep(0.08)
+            if is_really_pressed('down'):
+                if AMPLITUDE[0] > 0.00:
+                    AMPLITUDE[0] = max(0.00, AMPLITUDE[0] - 0.05)
+                    time.sleep(0.08)
+            # Switch wave type with NumPad 1/2/3/4
+            if '1' in actually_pressed_numpad:
+                if WAVE_TYPE[0] != 'sine':
+                    WAVE_TYPE[0] = 'sine'
+                    phase = 0
+                    time.sleep(0.15)
+            if '2' in actually_pressed_numpad:
+                if WAVE_TYPE[0] != 'square':
+                    WAVE_TYPE[0] = 'square'
+                    phase = 0
+                    time.sleep(0.15)
+            if '3' in actually_pressed_numpad:
+                if WAVE_TYPE[0] != 'triangle':
+                    WAVE_TYPE[0] = 'triangle'
+                    phase = 0
+                    time.sleep(0.15)
+            if '4' in actually_pressed_numpad:
+                if WAVE_TYPE[0] != 'sawtooth':
+                    WAVE_TYPE[0] = 'sawtooth'
+                    phase = 0
+                    time.sleep(0.15)
+            # Toggle reverb with NumPad 5
+            if '5' in actually_pressed_numpad:
+                REVERB_ON[0] = not REVERB_ON[0]
+                reverb_buffer[:] = 0
+                time.sleep(0.2)
+            # Toggle chorus with NumPad 6
+            if '6' in actually_pressed_numpad:
+                CHORUS_ON[0] = not CHORUS_ON[0]
+                chorus_buffer[:] = 0
+                time.sleep(0.2)
+            # Toggle delay with NumPad 7
+            if '7' in actually_pressed_numpad:
+                DELAY_ON[0] = not DELAY_ON[0]
+                delay_buffer[:] = 0
+                time.sleep(0.2)
+            time.sleep(0.005)
+    finally:
+        pass
+    while stream.is_active():
         if is_really_pressed('esc'):
             break
         # Change volume with arrow keys
