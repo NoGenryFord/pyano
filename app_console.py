@@ -433,8 +433,8 @@ def callback(outdata, frames, time_info, status):
 def audio_callback(outdata, frames, time_info, status):
     callback(outdata, frames, time_info, status)
 
-# --- Select WASAPI device index here ---
-DEVICE_INDEX = 8  # Set to integer to select WASAPI device, or None for default
+# --- Select output device index here ---
+DEVICE_INDEX = None  # Set to integer to select device, or None for default
 
 with sd.OutputStream(
     device=DEVICE_INDEX,
